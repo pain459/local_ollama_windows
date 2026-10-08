@@ -12,7 +12,8 @@
         'Invoke-StackSetup',
         'Invoke-StackStart',
         'Invoke-StackStop',
-        'Get-StackStatus'
+        'Get-StackStatus',
+        'Invoke-StackBenchmark'
     )
     CmdletsToExport = @()
     VariablesToExport = @()

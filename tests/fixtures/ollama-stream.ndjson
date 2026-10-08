@@ -1,0 +1,3 @@
+{"model":"devstral-small-2:24b","message":{"role":"assistant","content":"OK"},"done":false}
+{"model":"devstral-small-2:24b","message":{"role":"assistant","content":"."},"done":false}
+{"model":"devstral-small-2:24b","message":{"role":"assistant","content":""},"done":true,"total_duration":8000000000,"load_duration":2000000000,"prompt_eval_count":100,"prompt_eval_duration":5000000000,"eval_count":50,"eval_duration":4000000000}
