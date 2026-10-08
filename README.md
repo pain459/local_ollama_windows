@@ -44,7 +44,7 @@ unset ANTHROPIC_API_KEY
 claude
 ```
 
-For OpenAI-compatible clients use `http://WINDOWS_LAN_IP:4000/v1`, model `local-coder`, and `Authorization: Bearer <client-key>`. Open `http://WINDOWS_LAN_IP:4000/ui`, sign in as `admin`, and use `LITELLM_MASTER_KEY` from `.env.local` as the dashboard password. Do not copy the master key into coding clients.
+For OpenAI-compatible clients use `http://WINDOWS_LAN_IP:4000/v1`, model `local-coder`, and `Authorization: Bearer <client-key>`. The generated coding key is deliberately restricted to the selected model that passed the GPU-residency gate; other configured aliases are for deliberate admin/benchmark use. Open `http://WINDOWS_LAN_IP:4000/ui`, sign in as `admin`, and use `LITELLM_MASTER_KEY` from `.env.local` as the dashboard password. Do not copy the master key into coding clients.
 
 Port 11434 and PostgreSQL 5432 must remain unreachable from the Mac. This HTTP design is only for a trusted Private LAN; use a separate TLS/VPN design for any untrusted or internet path.
 

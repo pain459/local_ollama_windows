@@ -5,7 +5,7 @@ Describe 'LiteLLM gateway lifecycle' {
     InModuleScope OllamaStack {
         It 'scopes start and stop to the fixed project and private env file without deleting volumes' {
             Mock Invoke-Compose { [pscustomobject]@{ExitCode=0;Output='ok'} }
-            $config = Get-StackConfiguration -RootPath $TestDrive -Model devstral
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
             $null = Start-GatewayStack -Config $config -SkipWait
             $null = Stop-GatewayStack -Config $config
             Assert-MockCalled Invoke-Compose 1 -ParameterFilter { ($Arguments -join ' ') -match '--project-name local-ollama-windows' -and ($Arguments -join ' ') -match '--env-file' -and ($Arguments -join ' ') -match 'up -d' }
@@ -20,13 +20,11 @@ Describe 'LiteLLM gateway lifecycle' {
         }
 
         It 'reuses an existing valid client key without generating another' {
-            $config = Get-StackConfiguration -RootPath $TestDrive -Model devstral
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
             New-Item -ItemType Directory -Path $config.Paths.StateDirectory -Force | Out-Null
             Set-Content -LiteralPath $config.Paths.ClientKeyPath -Value 'sk-existing-valid-client-key'
             Mock Invoke-LiteLLMRequest { [pscustomobject]@{data=@(
-                [pscustomobject]@{id='local-coder'},
-                [pscustomobject]@{id='local-qwen'},
-                [pscustomobject]@{id='local-devstral'}
+                [pscustomobject]@{id='local-coder'}
             )} }
             (Ensure-LiteLLMClientKey -Config $config) | Should Be 'sk-existing-valid-client-key'
             Assert-MockCalled Invoke-LiteLLMRequest 0 -ParameterFilter { $Path -eq '/key/generate' }
@@ -42,23 +40,21 @@ Describe 'LiteLLM gateway lifecycle' {
             (Test-LiteLLMClientKey -Config $config -Key 'sk-old') | Should Be $false
         }
 
-        It 'accepts a client key that can see every configured alias' {
+        It 'accepts a client key restricted to the selected validated alias' {
             Mock Invoke-LiteLLMRequest { [pscustomobject]@{data=@(
-                [pscustomobject]@{id='local-coder'},
-                [pscustomobject]@{id='local-qwen'},
-                [pscustomobject]@{id='local-devstral'}
+                [pscustomobject]@{id='local-coder'}
             )} }
             $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
             (Test-LiteLLMClientKey -Config $config -Key 'sk-current') | Should Be $true
         }
 
-        It 'generates one key restricted to the three local aliases and stores it' {
-            $config = Get-StackConfiguration -RootPath (Join-Path $TestDrive 'new') -Model devstral
+        It 'generates one key restricted to the selected validated alias and stores it' {
+            $config = Get-StackConfiguration -RootPath (Join-Path $TestDrive 'new') -Model ministral
             Mock Invoke-LiteLLMRequest { [pscustomobject]@{key='sk-new-client-key'} }
             $key = Ensure-LiteLLMClientKey -Config $config
             $key | Should Be 'sk-new-client-key'
             (Get-Content $config.Paths.ClientKeyPath -Raw).Trim() | Should Be 'sk-new-client-key'
-            Assert-MockCalled Invoke-LiteLLMRequest 1 -ParameterFilter { $Body -match 'local-coder' -and $Body -match 'local-qwen' -and $Body -match 'local-devstral' -and $Body -notmatch 'local-fast' -and $Body -match 'local-coding-client-[a-f0-9]{12}' }
+            Assert-MockCalled Invoke-LiteLLMRequest 1 -ParameterFilter { $Body -match 'local-coder' -and $Body -notmatch 'local-qwen|local-devstral|local-fast' -and $Body -match 'local-coding-client-[a-f0-9]{12}' }
         }
 
         It 'requires unauthenticated model access to be rejected before authenticated smoke traffic' {

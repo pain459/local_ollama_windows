@@ -47,10 +47,7 @@ function Test-LiteLLMClientKey {
         $response = Invoke-LiteLLMRequest -Config $Config -Path '/v1/models' -ApiKey $Key
         if (-not $response.PSObject.Properties['data']) { return $false }
         $visible = @($response.data | ForEach-Object { [string]$_.id })
-        foreach ($required in @($Config.Models | ForEach-Object { $_.Alias })) {
-            if ($required -notin $visible) { return $false }
-        }
-        return $true
+        return $visible.Count -eq 1 -and $visible[0] -eq $Config.Model.Alias
     } catch { return $false }
 }
 
@@ -63,7 +60,7 @@ function Ensure-LiteLLMClientKey {
     }
     $environment = Read-DotEnv -Path $Config.Paths.EnvFile
     $keyAlias = 'local-coding-client-' + ([guid]::NewGuid().ToString('N').Substring(0, 12))
-    $body = @{models=@($Config.Models | ForEach-Object { $_.Alias });key_alias=$keyAlias} | ConvertTo-Json -Compress
+    $body = @{models=@($Config.Model.Alias);key_alias=$keyAlias} | ConvertTo-Json -Compress
     $generated = Invoke-LiteLLMRequest -Config $Config -Path '/key/generate' -Method Post -ApiKey $environment['LITELLM_MASTER_KEY'] -Body $body
     if (-not $generated.key -or [string]$generated.key -notmatch '^sk-') { throw 'LiteLLM did not return a valid virtual key.' }
     if (-not (Test-Path $Config.Paths.StateDirectory)) { New-Item -ItemType Directory -Path $Config.Paths.StateDirectory -Force | Out-Null }
