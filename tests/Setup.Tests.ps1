@@ -56,3 +56,26 @@ Describe 'Idempotent secure setup' {
         }
     }
 }
+
+Describe 'Windows Firewall cmdlet compatibility' {
+    It 'uses only parameters supported by the installed firewall cmdlets' {
+        $sourcePath = Join-Path $repoRoot 'src\OllamaStack\Setup.ps1'
+        $tokens = $null
+        $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile($sourcePath, [ref]$tokens, [ref]$errors)
+        $errors.Count | Should Be 0
+        $commands = $ast.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst] -and
+                $node.GetCommandName() -in @('Get-NetFirewallPortFilter', 'Set-NetFirewallPortFilter')
+        }, $true)
+        foreach ($command in $commands) {
+            $metadata = Get-Command $command.GetCommandName()
+            foreach ($element in $command.CommandElements) {
+                if ($element -is [Management.Automation.Language.CommandParameterAst]) {
+                    $metadata.Parameters.ContainsKey($element.ParameterName) | Should Be $true
+                }
+            }
+        }
+    }
+}

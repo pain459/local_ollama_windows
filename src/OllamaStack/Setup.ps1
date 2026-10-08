@@ -89,7 +89,8 @@ function Enable-StackFirewall {
     $existing = Get-NetFirewallRule -Name $new.Name -ErrorAction SilentlyContinue
     if ($existing) {
         Set-NetFirewallRule -Name $new.Name -Enabled True -Profile $new.Profile -Direction $new.Direction -Action $new.Action -RemoteAddress $new.RemoteAddress -ErrorAction Stop | Out-Null
-        Set-NetFirewallPortFilter -AssociatedNetFirewallRule $existing -Protocol $new.Protocol -LocalPort $new.LocalPort -ErrorAction Stop | Out-Null
+        $portFilter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $existing -ErrorAction Stop
+        $portFilter | Set-NetFirewallPortFilter -Protocol $new.Protocol -LocalPort $new.LocalPort -ErrorAction Stop | Out-Null
     } else {
         New-NetFirewallRule -Name $new.Name -DisplayName $new.DisplayName -Enabled True -Profile $new.Profile -Direction $new.Direction -Action $new.Action -Protocol $new.Protocol -LocalPort $new.LocalPort -RemoteAddress $new.RemoteAddress -ErrorAction Stop | Out-Null
     }
