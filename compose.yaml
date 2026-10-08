@@ -1,0 +1,61 @@
+name: local-ollama-windows
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_DB: litellm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U litellm -d litellm]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  litellm:
+    image: ghcr.io/berriai/litellm:1.104.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?LITELLM_SALT_KEY is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      LITELLM_LOG: ERROR
+    command:
+      - --config
+      - /app/config.yaml
+      - --port
+      - '4000'
+      - --num_workers
+      - '1'
+    healthcheck:
+      test: [CMD-SHELL, "python -c \"import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:4000/health/readiness',headers={'Authorization':'Bearer '+os.environ['LITELLM_MASTER_KEY']}); urllib.request.urlopen(r,timeout=3)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "4000:4000"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./config/litellm.yaml:/app/config.yaml:ro
+    networks:
+      - frontend
+      - backend
+
+volumes:
+  postgres-data:
+
+networks:
+  frontend:
+  backend:
+    internal: true
+

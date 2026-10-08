@@ -1,0 +1,35 @@
+model_list:
+  - model_name: local-coder
+    litellm_params:
+      model: ollama_chat/devstral-small-2:24b
+      api_base: http://host.docker.internal:11434
+    model_info:
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+      supports_function_calling: true
+  - model_name: local-qwen
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://host.docker.internal:11434
+    model_info:
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+      supports_function_calling: true
+  - model_name: local-fast
+    litellm_params:
+      model: ollama_chat/ministral-3:14b
+      api_base: http://host.docker.internal:11434
+    model_info:
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+      supports_function_calling: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+
+litellm_settings:
+  turn_off_message_logging: true
+  redact_messages_in_exceptions: true
+  set_verbose: false
+
