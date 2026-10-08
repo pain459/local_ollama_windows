@@ -8,7 +8,11 @@
     FunctionsToExport = @(
         'Get-ModelConfiguration',
         'Get-StackPaths',
-        'Get-StackConfiguration'
+        'Get-StackConfiguration',
+        'Invoke-StackSetup',
+        'Invoke-StackStart',
+        'Invoke-StackStop',
+        'Get-StackStatus'
     )
     CmdletsToExport = @()
     VariablesToExport = @()

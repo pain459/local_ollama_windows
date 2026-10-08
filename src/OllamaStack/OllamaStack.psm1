@@ -5,10 +5,15 @@ Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'Setup.ps1')
 . (Join-Path $PSScriptRoot 'Ollama.ps1')
 . (Join-Path $PSScriptRoot 'LiteLLM.ps1')
+. (Join-Path $PSScriptRoot 'Actions.ps1')
 
 Export-ModuleMember -Function @(
     'Get-ModelConfiguration',
     'Get-StackPaths',
-    'Get-StackConfiguration'
+    'Get-StackConfiguration',
+    'Invoke-StackSetup',
+    'Invoke-StackStart',
+    'Invoke-StackStop',
+    'Get-StackStatus'
 )
 
