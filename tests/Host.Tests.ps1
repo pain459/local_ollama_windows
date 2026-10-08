@@ -71,3 +71,19 @@ Describe 'Windows host preflight' {
         }
     }
 }
+
+Describe 'Native command capture' {
+    InModuleScope OllamaStack {
+        It 'captures informational stderr from a successful native command without throwing' {
+            $previous = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Stop'
+                $result = Invoke-NativeCapture -FilePath $env:ComSpec -Arguments @('/d', '/c', 'echo pull-progress 1>&2 & exit /b 0')
+                $result.ExitCode | Should Be 0
+                $result.Output | Should Match 'pull-progress'
+            } finally {
+                $ErrorActionPreference = $previous
+            }
+        }
+    }
+}

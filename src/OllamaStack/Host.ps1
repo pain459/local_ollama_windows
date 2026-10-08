@@ -63,8 +63,18 @@ function Get-PortOwner {
 
 function Invoke-NativeCapture {
     param([string]$FilePath, [string[]]$Arguments)
-    $output = & $FilePath @Arguments 2>&1
-    [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output -join [Environment]::NewLine) }
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell 5.1 wraps native stderr as ErrorRecord objects.
+        # Docker uses stderr for normal pull progress, so capture it and judge
+        # success exclusively by the native process exit code.
+        $ErrorActionPreference = 'Continue'
+        $output = & $FilePath @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    [pscustomobject]@{ ExitCode = $exitCode; Output = (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine) }
 }
 
 function Get-DockerAvailability {
