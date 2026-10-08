@@ -23,10 +23,33 @@ Describe 'LiteLLM gateway lifecycle' {
             $config = Get-StackConfiguration -RootPath $TestDrive -Model devstral
             New-Item -ItemType Directory -Path $config.Paths.StateDirectory -Force | Out-Null
             Set-Content -LiteralPath $config.Paths.ClientKeyPath -Value 'sk-existing-valid-client-key'
-            Mock Test-LiteLLMClientKey { $true }
-            Mock Invoke-LiteLLMRequest { throw 'must not generate' }
+            Mock Invoke-LiteLLMRequest { [pscustomobject]@{data=@(
+                [pscustomobject]@{id='local-coder'},
+                [pscustomobject]@{id='local-qwen'},
+                [pscustomobject]@{id='local-devstral'}
+            )} }
             (Ensure-LiteLLMClientKey -Config $config) | Should Be 'sk-existing-valid-client-key'
             Assert-MockCalled Invoke-LiteLLMRequest 0 -ParameterFilter { $Path -eq '/key/generate' }
+        }
+
+        It 'rejects a client key whose visible model allowlist is stale' {
+            Mock Invoke-LiteLLMRequest { [pscustomobject]@{data=@(
+                [pscustomobject]@{id='local-coder'},
+                [pscustomobject]@{id='local-qwen'},
+                [pscustomobject]@{id='local-fast'}
+            )} }
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
+            (Test-LiteLLMClientKey -Config $config -Key 'sk-old') | Should Be $false
+        }
+
+        It 'accepts a client key that can see every configured alias' {
+            Mock Invoke-LiteLLMRequest { [pscustomobject]@{data=@(
+                [pscustomobject]@{id='local-coder'},
+                [pscustomobject]@{id='local-qwen'},
+                [pscustomobject]@{id='local-devstral'}
+            )} }
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
+            (Test-LiteLLMClientKey -Config $config -Key 'sk-current') | Should Be $true
         }
 
         It 'generates one key restricted to the three local aliases and stores it' {
@@ -35,7 +58,7 @@ Describe 'LiteLLM gateway lifecycle' {
             $key = Ensure-LiteLLMClientKey -Config $config
             $key | Should Be 'sk-new-client-key'
             (Get-Content $config.Paths.ClientKeyPath -Raw).Trim() | Should Be 'sk-new-client-key'
-            Assert-MockCalled Invoke-LiteLLMRequest 1 -ParameterFilter { $Body -match 'local-coder' -and $Body -match 'local-qwen' -and $Body -match 'local-fast' }
+            Assert-MockCalled Invoke-LiteLLMRequest 1 -ParameterFilter { $Body -match 'local-coder' -and $Body -match 'local-qwen' -and $Body -match 'local-devstral' -and $Body -notmatch 'local-fast' -and $Body -match 'local-coding-client-[a-f0-9]{12}' }
         }
 
         It 'requires unauthenticated model access to be rejected before authenticated smoke traffic' {
@@ -44,6 +67,14 @@ Describe 'LiteLLM gateway lifecycle' {
             Mock Ensure-LiteLLMClientKey { 'sk-client' }
             $config = Get-StackConfiguration -RootPath $TestDrive -Model devstral
             (Invoke-GatewaySmokeTest -Config $config).Usage.total_tokens | Should Be 2
+        }
+
+        It 'extracts usage from a streaming SSE response under StrictMode' {
+            Mock Test-UnauthenticatedGatewayRejection { $true }
+            Mock Ensure-LiteLLMClientKey { 'sk-client' }
+            Mock Invoke-LiteLLMRequest { "data: {`"choices`":[{`"delta`":{`"content`":`"OK`"}}]}`n`ndata: {`"choices`":[],`"usage`":{`"prompt_tokens`":3,`"completion_tokens`":2,`"total_tokens`":5}}`n`ndata: [DONE]" }
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
+            (Invoke-GatewaySmokeTest -Config $config).Usage.total_tokens | Should Be 5
         }
     }
 }

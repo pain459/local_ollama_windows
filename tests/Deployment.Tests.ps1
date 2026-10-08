@@ -32,7 +32,7 @@ Describe 'Pinned LiteLLM deployment' {
     It 'exposes all three local models through ollama_chat with zero prices and tool metadata' {
         Test-Path $configPath | Should Be $true
         $config = Get-Content $configPath -Raw
-        foreach ($alias in @('local-coder', 'local-qwen', 'local-fast')) {
+        foreach ($alias in @('local-coder', 'local-qwen', 'local-devstral')) {
             $config | Should Match ("model_name: " + [regex]::Escape($alias))
         }
         ([regex]::Matches($config, 'model: ollama_chat/')).Count | Should Be 3

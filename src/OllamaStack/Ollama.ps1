@@ -94,7 +94,7 @@ function Get-OllamaResidency {
     if ($result.ExitCode -ne 0) { throw "Unable to inspect Ollama residency: $($result.Output)" }
     $line = @($result.Output -split "`r?`n") | Where-Object { $_ -match [regex]::Escape($ModelName) } | Select-Object -First 1
     if (-not $line) { throw "Model '$ModelName' is not loaded." }
-    $processor = if ($line -match '(\d+% GPU)') { $Matches[1] } else { 'CPU/GPU split' }
+    $processor = if ($line -match '(\d+%)\s+GPU') { "$($Matches[1]) GPU" } else { 'CPU/GPU split' }
     $context = if ($line -match '(?:^|\s)(102400)(?:\s|$)') { [int]$Matches[1] } elseif ($line -match '(?:^|\s)(\d{4,6})(?:\s|$)') { [int]$Matches[1] } else { 0 }
     $full = $processor -eq '100% GPU' -and $context -eq 102400
     if (-not $full) { throw "Performance validation failed for '$ModelName': processor '$processor', context $context; expected 100% GPU and 102400." }

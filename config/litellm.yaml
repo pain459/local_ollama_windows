@@ -1,7 +1,7 @@
 model_list:
   - model_name: local-coder
     litellm_params:
-      model: ollama_chat/devstral-small-2:24b
+      model: ollama_chat/ministral-3:14b
       api_base: http://host.docker.internal:11434
     model_info:
       input_cost_per_token: 0
@@ -15,9 +15,9 @@ model_list:
       input_cost_per_token: 0
       output_cost_per_token: 0
       supports_function_calling: true
-  - model_name: local-fast
+  - model_name: local-devstral
     litellm_params:
-      model: ollama_chat/ministral-3:14b
+      model: ollama_chat/devstral-small-2:24b
       api_base: http://host.docker.internal:11434
     model_info:
       input_cost_per_token: 0

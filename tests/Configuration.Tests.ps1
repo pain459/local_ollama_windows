@@ -3,10 +3,10 @@ $manifest = Join-Path $repoRoot 'src\OllamaStack\OllamaStack.psd1'
 Import-Module $manifest -Force
 
 Describe 'Ollama stack configuration contract' {
-    It 'maps devstral to the primary coding alias at 102400 context' {
+    It 'maps devstral to its explicit quality alias at 102400 context' {
         $model = Get-ModelConfiguration -Model 'devstral'
         $model.Name | Should Be 'devstral'
-        $model.Alias | Should Be 'local-coder'
+        $model.Alias | Should Be 'local-devstral'
         $model.OllamaName | Should Be 'devstral-small-2:24b'
         $model.LiteLLMName | Should Be 'ollama_chat/devstral-small-2:24b'
         $model.ContextLength | Should Be 102400
@@ -19,9 +19,15 @@ Describe 'Ollama stack configuration contract' {
         $qwen.ContextLength | Should Be 102400
 
         $fast = Get-ModelConfiguration -Model 'ministral'
-        $fast.Alias | Should Be 'local-fast'
+        $fast.Alias | Should Be 'local-coder'
         $fast.OllamaName | Should Be 'ministral-3:14b'
         $fast.ContextLength | Should Be 102400
+    }
+
+    It 'defaults the stack to the fully GPU-resident Ministral model' {
+        $config = Get-StackConfiguration -RootPath $repoRoot
+        $config.Model.Name | Should Be 'ministral'
+        $config.Model.Alias | Should Be 'local-coder'
     }
 
     It 'rejects an unknown model instead of silently changing it' {

@@ -9,7 +9,7 @@ function Get-ModelConfiguration {
     $models = @{
         devstral = [pscustomobject]@{
             Name = 'devstral'
-            Alias = 'local-coder'
+            Alias = 'local-devstral'
             OllamaName = 'devstral-small-2:24b'
             LiteLLMName = 'ollama_chat/devstral-small-2:24b'
             ContextLength = 102400
@@ -23,7 +23,7 @@ function Get-ModelConfiguration {
         }
         ministral = [pscustomobject]@{
             Name = 'ministral'
-            Alias = 'local-fast'
+            Alias = 'local-coder'
             OllamaName = 'ministral-3:14b'
             LiteLLMName = 'ollama_chat/ministral-3:14b'
             ContextLength = 102400
@@ -69,7 +69,7 @@ function Get-StackConfiguration {
         [string]$RootPath,
 
         [ValidateSet('devstral', 'qwen', 'ministral')]
-        [string]$Model = 'devstral'
+        [string]$Model = 'ministral'
     )
 
     $modelConfig = Get-ModelConfiguration -Model $Model

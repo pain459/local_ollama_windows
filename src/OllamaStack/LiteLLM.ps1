@@ -43,7 +43,15 @@ function Wait-GatewayReady {
 
 function Test-LiteLLMClientKey {
     param([pscustomobject]$Config, [string]$Key)
-    try { $null = Invoke-LiteLLMRequest -Config $Config -Path '/v1/models' -ApiKey $Key; return $true } catch { return $false }
+    try {
+        $response = Invoke-LiteLLMRequest -Config $Config -Path '/v1/models' -ApiKey $Key
+        if (-not $response.PSObject.Properties['data']) { return $false }
+        $visible = @($response.data | ForEach-Object { [string]$_.id })
+        foreach ($required in @($Config.Models | ForEach-Object { $_.Alias })) {
+            if ($required -notin $visible) { return $false }
+        }
+        return $true
+    } catch { return $false }
 }
 
 function Ensure-LiteLLMClientKey {
@@ -54,7 +62,8 @@ function Ensure-LiteLLMClientKey {
         if ($existing -and (Test-LiteLLMClientKey -Config $Config -Key $existing)) { return $existing }
     }
     $environment = Read-DotEnv -Path $Config.Paths.EnvFile
-    $body = @{models=@('local-coder','local-qwen','local-fast');key_alias='local-coding-client'} | ConvertTo-Json -Compress
+    $keyAlias = 'local-coding-client-' + ([guid]::NewGuid().ToString('N').Substring(0, 12))
+    $body = @{models=@($Config.Models | ForEach-Object { $_.Alias });key_alias=$keyAlias} | ConvertTo-Json -Compress
     $generated = Invoke-LiteLLMRequest -Config $Config -Path '/key/generate' -Method Post -ApiKey $environment['LITELLM_MASTER_KEY'] -Body $body
     if (-not $generated.key -or [string]$generated.key -notmatch '^sk-') { throw 'LiteLLM did not return a valid virtual key.' }
     if (-not (Test-Path $Config.Paths.StateDirectory)) { New-Item -ItemType Directory -Path $Config.Paths.StateDirectory -Force | Out-Null }
@@ -75,10 +84,17 @@ function Invoke-GatewaySmokeTest {
     $key = Ensure-LiteLLMClientKey -Config $Config
     $body = @{model=$Config.Model.Alias;messages=@(@{role='user';content='Reply with OK.'});max_tokens=8;stream=$true;stream_options=@{include_usage=$true}} | ConvertTo-Json -Depth 6 -Compress
     $response = Invoke-LiteLLMRequest -Config $Config -Path '/v1/chat/completions' -Method Post -ApiKey $key -Body $body
-    $usage = $response.usage
-    if (-not $usage -and $response -is [string]) {
-        foreach ($line in ($response -split "`r?`n")) {
-            if ($line.StartsWith('data: {')) { $item = $line.Substring(6) | ConvertFrom-Json; if ($item.usage) { $usage = $item.usage } }
+    $usage = $null
+    if ($response -isnot [string] -and $response.PSObject.Properties['usage']) {
+        $usage = $response.usage
+    }
+    if (-not $usage) {
+        $streamText = @($response | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+        foreach ($line in ($streamText -split "`r?`n")) {
+            if ($line.StartsWith('data: {')) {
+                $item = $line.Substring(6) | ConvertFrom-Json
+                if ($item.PSObject.Properties['usage'] -and $item.usage) { $usage = $item.usage }
+            }
         }
     }
     if (-not $usage) { throw 'Authenticated streaming smoke test returned no token usage.' }

@@ -46,6 +46,13 @@ Describe 'Managed Ollama lifecycle' {
             $ok.ContextLength | Should Be 102400
         }
 
+        It 'normalizes variable spacing in the Ollama processor column' {
+            Mock Invoke-NativeCapture { [pscustomobject]@{ExitCode=0;Output="NAME ID SIZE PROCESSOR CONTEXT UNTIL`nministral-3:14b abc 17 GB 100%    GPU 102400 Forever"} }
+            $result = Get-OllamaResidency -ModelName 'ministral-3:14b'
+            $result.Processor | Should Be '100% GPU'
+            $result.FullyGpuResident | Should Be $true
+        }
+
         It 'rejects CPU split or a smaller context' {
             Mock Invoke-NativeCapture { [pscustomobject]@{ExitCode=0;Output="NAME ID SIZE PROCESSOR CONTEXT UNTIL`ndevstral-small-2:24b abc 22 GB 80%/20% CPU/GPU 65536 Forever"} }
             { Get-OllamaResidency -ModelName 'devstral-small-2:24b' } | Should Throw

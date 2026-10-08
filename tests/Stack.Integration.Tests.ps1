@@ -3,7 +3,7 @@ $run=$env:RUN_STACK_INTEGRATION -eq '1'
 Describe 'Live Ollama stack acceptance' -Tag Integration {
  It 'passes authenticated LAN-gateway and GPU-residency checks without printing keys' -Skip:(-not $run) {
   Import-Module (Join-Path $repoRoot 'src\OllamaStack\OllamaStack.psd1') -Force
-  $config=Get-StackConfiguration -RootPath $repoRoot -Model devstral
+  $config=Get-StackConfiguration -RootPath $repoRoot -Model ministral
   {docker compose --project-name local-ollama-windows --env-file $config.Paths.EnvFile -f $config.Paths.ComposeFile config --quiet}|Should Not Throw
   $status=Get-StackStatus -Config $config
   $status.LiteLLMHealthy|Should Be $true
