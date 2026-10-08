@@ -13,15 +13,19 @@ function Invoke-StackStart {
     [CmdletBinding()]param([pscustomobject]$Config)
     $pre=Get-HostPreflight -Config $Config
     if(-not $pre.CanStart){throw "Start refused: $($pre.Errors -join '; ')"}
-    $power=$null;$ollamaStarted=$false;$gatewayStarted=$false
+    $power=$null;$ollamaStarted=$false;$ollamaReused=$false;$ollamaPreviousModel=$null;$gatewayStarted=$false
     try{
         $power=Set-StackHighPerformance
-        $ollama=Start-ManagedOllama -Config $Config;$ollamaStarted=$ollama.Started
+        $ollama=Start-ManagedOllama -Config $Config;$ollamaStarted=$ollama.Started;$ollamaReused=[bool]($ollama.PSObject.Properties['Reused'] -and $ollama.Reused);$ollamaPreviousModel=if($ollama.PSObject.Properties['PreviousModel']){[string]$ollama.PreviousModel}else{$null}
         $null=Initialize-OllamaModel -Config $Config
-        $residency=Get-OllamaResidency -ModelName $Config.Model.OllamaName
+        $residency=Get-OllamaResidency -ModelName $Config.Model.OllamaName -ExpectedContextLength $Config.Model.ContextLength
         $gateway=Start-GatewayStack -Config $Config;$gatewayStarted=$gateway.Started
         $smoke=Invoke-GatewaySmokeTest -Config $Config
+        # Gateway/provider defaults can reload Ollama with a different context.
+        # Validate the final serving state after the client-protocol smoke test.
+        $residency=Get-OllamaResidency -ModelName $Config.Model.OllamaName -ExpectedContextLength $Config.Model.ContextLength
         $state=Get-Content $Config.Paths.RuntimeStatePath -Raw|ConvertFrom-Json
+        $state|Add-Member NoteProperty Model $Config.Model.OllamaName -Force
         $state|Add-Member NoteProperty PreviousPowerScheme $power.Previous -Force
         $state|Add-Member NoteProperty PowerChanged $power.Changed -Force
         $state|Add-Member NoteProperty GatewayStarted $gatewayStarted -Force
@@ -30,6 +34,7 @@ function Invoke-StackStart {
         [pscustomobject]@{Succeeded=$true;ApiUrl="http://$($pre.Adapter.IPv4Address):4000/v1";DashboardUrl="http://$($pre.Adapter.IPv4Address):4000/ui";Model=$Config.Model.Alias;ContextLength=$residency.ContextLength;Processor=$residency.Processor;ClientKeyPath=$Config.Paths.ClientKeyPath}
     }catch{
         if($gatewayStarted){try{$null=Stop-GatewayStack -Config $Config}catch{}}
+        if($ollamaReused -and $ollamaPreviousModel -ne $Config.Model.OllamaName){try{$null=Unload-OllamaModel -ModelName $Config.Model.OllamaName}catch{}}
         if($ollamaStarted){try{$null=Stop-ManagedOllama -Config $Config}catch{}}
         if($power -and $power.Changed){Restore-StackPowerScheme -Scheme $power.Previous}
         throw
@@ -50,7 +55,7 @@ function Get-StackStatus {
     $adapter=Get-ActiveLanAdapter
     $state=$null;if(Test-Path $Config.Paths.RuntimeStatePath){$state=Get-Content $Config.Paths.RuntimeStatePath -Raw|ConvertFrom-Json}
     $gateway=try{Get-GatewayStatus -Config $Config}catch{[pscustomobject]@{Healthy=$false}}
-    $residency=try{Get-OllamaResidency -ModelName $Config.Model.OllamaName}catch{[pscustomobject]@{ContextLength=0;Processor='Not loaded';FullyGpuResident=$false}}
+    $residency=try{Get-OllamaResidency -ModelName $Config.Model.OllamaName -ExpectedContextLength $Config.Model.ContextLength}catch{[pscustomobject]@{ContextLength=0;Processor='Not loaded';FullyGpuResident=$false}}
     $firewall=Get-NetFirewallRule -Name 'LocalOllamaWindows-LiteLLM-4000' -ErrorAction SilentlyContinue
     [pscustomobject]@{Adapter=$adapter.Name;MacAddress=$adapter.MacAddress;IPv4Address=$adapter.IPv4Address;NetworkCategory=$adapter.NetworkCategory;AddressChanged=[bool]($state -and $state.LanIPv4 -and $state.LanIPv4 -ne $adapter.IPv4Address);OllamaHealthy=$residency.FullyGpuResident;LiteLLMHealthy=$gateway.Healthy;PostgreSQLHealthy=$gateway.Healthy;OwnedPid=if($state){$state.Pid}else{$null};Model=$Config.Model.Alias;ContextLength=$residency.ContextLength;Processor=$residency.Processor;FirewallPrivateLocalSubnet=[bool]($firewall -and [string]$firewall.Enabled -eq 'True' -and [string]$firewall.Profile -match 'Private');ApiUrl="http://$($adapter.IPv4Address):4000/v1";DashboardUrl="http://$($adapter.IPv4Address):4000/ui";ClientConfigurationPath=$Config.Paths.ClientKeyPath}
 }

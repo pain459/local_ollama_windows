@@ -12,12 +12,12 @@ function Get-PeakVramMiB {
 function Unload-OllamaModel {param([string]$ModelName)$ollama=(Get-Command ollama -ErrorAction Stop).Source;$null=Invoke-NativeCapture -FilePath $ollama -Arguments @('stop',$ModelName)}
 function Measure-OllamaModel {
  [CmdletBinding()]param([pscustomobject]$Config,[string]$Model)
- $res=Get-OllamaResidency -ModelName $Config.Model.OllamaName
+ $res=Get-OllamaResidency -ModelName $Config.Model.OllamaName -ExpectedContextLength $Config.Model.ContextLength
  if(-not $res.FullyGpuResident){throw "Benchmark refused CPU offload for '$Model'."}
  Add-Type -AssemblyName System.Net.Http
  $client=New-Object Net.Http.HttpClient
  try{
-  $payload=@{model=$Config.Model.OllamaName;messages=@(@{role='user';content='Implement a small safe function and explain its edge cases.'});stream=$true;keep_alive=-1;options=@{num_ctx=102400}}|ConvertTo-Json -Depth 6 -Compress
+  $payload=@{model=$Config.Model.OllamaName;messages=@(@{role='user';content='Implement a small safe function and explain its edge cases.'});stream=$true;keep_alive=-1;options=@{num_ctx=[int]$Config.Model.ContextLength}}|ConvertTo-Json -Depth 6 -Compress
   $content=New-Object Net.Http.StringContent($payload,[Text.Encoding]::UTF8,'application/json')
   $watch=[Diagnostics.Stopwatch]::StartNew();$request=New-Object Net.Http.HttpRequestMessage([Net.Http.HttpMethod]::Post,"$($Config.OllamaBaseUri)/api/chat");$request.Content=$content
   $response=$client.SendAsync($request,[Net.Http.HttpCompletionOption]::ResponseHeadersRead).Result;$response.EnsureSuccessStatusCode()|Out-Null

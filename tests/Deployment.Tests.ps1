@@ -29,10 +29,10 @@ Describe 'Pinned LiteLLM deployment' {
         $compose | Should Match 'host\.docker\.internal:host-gateway'
     }
 
-    It 'exposes all three local models through ollama_chat with zero prices and tool metadata' {
+    It 'exposes all three local models through ollama_chat with zero prices and capability metadata' {
         Test-Path $configPath | Should Be $true
         $config = Get-Content $configPath -Raw
-        foreach ($alias in @('local-coder', 'local-qwen', 'local-devstral')) {
+        foreach ($alias in @('local-coder', 'local-fast', 'local-devstral')) {
             $config | Should Match ("model_name: " + [regex]::Escape($alias))
         }
         ([regex]::Matches($config, 'model: ollama_chat/')).Count | Should Be 3
@@ -40,6 +40,9 @@ Describe 'Pinned LiteLLM deployment' {
         ([regex]::Matches($config, 'input_cost_per_token: 0')).Count | Should Be 3
         ([regex]::Matches($config, 'output_cost_per_token: 0')).Count | Should Be 3
         ([regex]::Matches($config, 'supports_function_calling: true')).Count | Should Be 3
+        ([regex]::Matches($config, 'supports_reasoning: true')).Count | Should Be 1
+        ([regex]::Matches($config, 'num_ctx:')).Count | Should Be 3
+        $config | Should Match '(?s)model_name: local-coder.*?model: ollama_chat/qwen3\.8:27b.*?num_ctx: 92160.*?max_input_tokens: 92160.*?supports_reasoning: true'
     }
 
     It 'redacts messages while retaining usage metadata' {

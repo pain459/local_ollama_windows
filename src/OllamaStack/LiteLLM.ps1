@@ -79,23 +79,61 @@ function Invoke-GatewaySmokeTest {
     param([pscustomobject]$Config)
     if (-not (Test-UnauthenticatedGatewayRejection -Config $Config)) { throw 'Gateway accepted an unauthenticated model request.' }
     $key = Ensure-LiteLLMClientKey -Config $Config
-    $body = @{model=$Config.Model.Alias;messages=@(@{role='user';content='Reply with OK.'});max_tokens=8;stream=$true;stream_options=@{include_usage=$true}} | ConvertTo-Json -Depth 6 -Compress
-    $response = Invoke-LiteLLMRequest -Config $Config -Path '/v1/chat/completions' -Method Post -ApiKey $key -Body $body
+    $thinkingRequested = [bool]$Config.Model.SupportsThinking
+    $thinkingVerified = $false
     $usage = $null
-    if ($response -isnot [string] -and $response.PSObject.Properties['usage']) {
-        $usage = $response.usage
-    }
-    if (-not $usage) {
-        $streamText = @($response | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
-        foreach ($line in ($streamText -split "`r?`n")) {
-            if ($line.StartsWith('data: {')) {
-                $item = $line.Substring(6) | ConvertFrom-Json
-                if ($item.PSObject.Properties['usage'] -and $item.usage) { $usage = $item.usage }
+
+    if ($thinkingRequested) {
+        # Claude Code uses the Anthropic Messages protocol. Exercise that exact
+        # path instead of sending a non-standard parameter to OpenAI chat.
+        $request = @{
+            model=$Config.Model.Alias
+            messages=@(@{role='user';content='Think briefly, then reply with OK.'})
+            max_tokens=2048
+            thinking=@{type='enabled';budget_tokens=1024}
+            stream=$false
+        }
+        $body = $request | ConvertTo-Json -Depth 6 -Compress
+        $response = Invoke-LiteLLMRequest -Config $Config -Path '/v1/messages' -Method Post -ApiKey $key -Body $body
+        $blocks = if ($response.PSObject.Properties['content']) { @($response.content) } else { @() }
+        $finalTextVerified = $false
+        foreach ($block in $blocks) {
+            if ($block.PSObject.Properties['type'] -and [string]$block.type -eq 'thinking' -and
+                $block.PSObject.Properties['thinking'] -and -not [string]::IsNullOrWhiteSpace([string]$block.thinking)) {
+                $thinkingVerified = $true
+            }
+            if ($block.PSObject.Properties['type'] -and [string]$block.type -eq 'text' -and
+                $block.PSObject.Properties['text'] -and -not [string]::IsNullOrWhiteSpace([string]$block.text)) {
+                $finalTextVerified = $true
+            }
+        }
+        if (-not $thinkingVerified) { throw "Authenticated Anthropic smoke test for '$($Config.Model.Alias)' returned no thinking block." }
+        if (-not $finalTextVerified) { throw "Authenticated Anthropic smoke test for '$($Config.Model.Alias)' returned no final text block." }
+        if ($response.PSObject.Properties['usage']) { $usage = $response.usage }
+        if ($usage -and -not $usage.PSObject.Properties['total_tokens']) {
+            $inputTokens = if ($usage.PSObject.Properties['input_tokens']) { [int]$usage.input_tokens } else { 0 }
+            $outputTokens = if ($usage.PSObject.Properties['output_tokens']) { [int]$usage.output_tokens } else { 0 }
+            $usage | Add-Member NoteProperty total_tokens ($inputTokens + $outputTokens)
+        }
+    } else {
+        $request = @{model=$Config.Model.Alias;messages=@(@{role='user';content='Reply with OK.'});max_tokens=64;stream=$true;stream_options=@{include_usage=$true}}
+        $body = $request | ConvertTo-Json -Depth 6 -Compress
+        $response = Invoke-LiteLLMRequest -Config $Config -Path '/v1/chat/completions' -Method Post -ApiKey $key -Body $body
+        if ($response -isnot [string] -and $response.PSObject.Properties['usage']) {
+            $usage = $response.usage
+        }
+        if (-not $usage) {
+            $streamText = @($response | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+            foreach ($line in ($streamText -split "`r?`n")) {
+                if ($line.StartsWith('data: {')) {
+                    $item = $line.Substring(6) | ConvertFrom-Json
+                    if ($item.PSObject.Properties['usage'] -and $item.usage) { $usage = $item.usage }
+                }
             }
         }
     }
     if (-not $usage) { throw 'Authenticated streaming smoke test returned no token usage.' }
-    [pscustomobject]@{Succeeded=$true;Model=$Config.Model.Alias;Usage=$usage;ClientKeyPath=$Config.Paths.ClientKeyPath}
+    [pscustomobject]@{Succeeded=$true;Model=$Config.Model.Alias;ThinkingRequested=$thinkingRequested;ThinkingVerified=$thinkingVerified;Usage=$usage;ClientKeyPath=$Config.Paths.ClientKeyPath}
 }
 
 function Get-GatewayStatus {

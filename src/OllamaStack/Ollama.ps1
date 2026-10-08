@@ -25,10 +25,19 @@ function Test-OfficialOllamaExecutable {
 function Test-ManagedProcessIdentity {
     param($Process, $State)
     if (-not $Process -or -not $State) { return $false }
-    $samePath = [string]$Process.Path -and ([IO.Path]::GetFullPath([string]$Process.Path) -eq [IO.Path]::GetFullPath([string]$State.ExecutablePath))
+    $samePid = -not $State.PSObject.Properties['Pid'] -or [int]$Process.Id -eq [int]$State.Pid
+    $processPath = [string]$Process.Path
+    if ($processPath) {
+        $samePath = [IO.Path]::GetFullPath($processPath) -eq [IO.Path]::GetFullPath([string]$State.ExecutablePath)
+    } else {
+        # Windows can hide the Path property for an otherwise inspectable
+        # process. Retain PID, creation-time, and executable-name checks.
+        $expectedName = [IO.Path]::GetFileNameWithoutExtension([string]$State.ExecutablePath)
+        $samePath = $Process.PSObject.Properties['ProcessName'] -and [string]$Process.ProcessName -eq $expectedName
+    }
     $actual = $Process.StartTime.ToUniversalTime()
     $expected = [datetime]::Parse([string]$State.StartedAtUtc).ToUniversalTime()
-    return $samePath -and ([math]::Abs(($actual - $expected).TotalSeconds) -lt 1)
+    return $samePid -and $samePath -and ([math]::Abs(($actual - $expected).TotalSeconds) -lt 1)
 }
 
 function Wait-OllamaReady {
@@ -48,11 +57,25 @@ function Start-ManagedOllama {
     $ollama = Get-Command ollama -ErrorAction Stop
     $owner = Get-PortOwner -Port $Config.OllamaPort
     if ($owner) {
-        if (-not (Test-OfficialOllamaExecutable -Path $owner.ExecutablePath -CommandPath $ollama.Source)) {
+        $current = Get-Process -Id $owner.Pid -ErrorAction Stop
+        $identity = $owner
+        $reuseManaged = $false
+        $recognized = Test-OfficialOllamaExecutable -Path $owner.ExecutablePath -CommandPath $ollama.Source
+        if (-not $recognized -and (Test-Path -LiteralPath $Config.Paths.RuntimeStatePath)) {
+            $savedState = Get-Content -LiteralPath $Config.Paths.RuntimeStatePath -Raw | ConvertFrom-Json
+            if (Test-ManagedProcessIdentity -Process $current -State $savedState) {
+                $identity = $savedState
+                $recognized = $true
+                $reuseManaged = $true
+            }
+        }
+        if (-not $recognized) {
             throw "Port $($Config.OllamaPort) is owned by unrecognized PID $($owner.Pid) at '$($owner.ExecutablePath)'."
         }
-        $current = Get-Process -Id $owner.Pid -ErrorAction Stop
-        if (-not (Test-ManagedProcessIdentity -Process $current -State $owner)) { throw 'The Ollama port owner changed during validation.' }
+        if (-not (Test-ManagedProcessIdentity -Process $current -State $identity)) { throw 'The Ollama port owner changed during validation.' }
+        if ($reuseManaged) {
+            return [pscustomobject]@{Started=$false;Reused=$true;PreviousModel=[string]$savedState.Model;Pid=$current.Id;StartedAtUtc=$savedState.StartedAtUtc;ExecutablePath=$savedState.ExecutablePath;Model=$Config.Model.OllamaName}
+        }
         Stop-Process -Id $owner.Pid -ErrorAction Stop
         $current.WaitForExit(10000) | Out-Null
     }
@@ -75,29 +98,43 @@ function Start-ManagedOllama {
 function Initialize-OllamaModel {
     [CmdletBinding()]
     param([Parameter(Mandatory=$true)][pscustomobject]$Config)
-    $body = [ordered]@{
+    $request = [ordered]@{
         model=$Config.Model.OllamaName
         messages=@(@{role='user';content='Reply with OK.'})
         stream=$false
         keep_alive=-1
         options=@{num_ctx=[int]$Config.Model.ContextLength}
-    } | ConvertTo-Json -Depth 6 -Compress
+    }
+    if ($Config.Model.SupportsThinking) { $request.think = $true }
+    $body = $request | ConvertTo-Json -Depth 6 -Compress
     $response = Invoke-RestMethod -Uri "$($Config.OllamaBaseUri)/api/chat" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec $Config.StartupTimeoutSeconds
-    [pscustomobject]@{Loaded=$true;Model=$Config.Model.OllamaName;ContextLength=$Config.Model.ContextLength;Response=$response}
+    $thinkingVerified = $false
+    if ($Config.Model.SupportsThinking) {
+        $hasMessage = $response -and $response.PSObject.Properties['message']
+        $hasThinking = $hasMessage -and $response.message -and $response.message.PSObject.Properties['thinking'] -and -not [string]::IsNullOrWhiteSpace([string]$response.message.thinking)
+        if (-not $hasThinking) { throw "Model '$($Config.Model.OllamaName)' is configured for coding but did not return thinking output." }
+        $hasContent = $response.message.PSObject.Properties['content'] -and -not [string]::IsNullOrWhiteSpace([string]$response.message.content)
+        if (-not $hasContent) { throw "Model '$($Config.Model.OllamaName)' returned thinking but did not return a final answer." }
+        $thinkingVerified = $true
+    }
+    [pscustomobject]@{Loaded=$true;Model=$Config.Model.OllamaName;ContextLength=$Config.Model.ContextLength;ThinkingVerified=$thinkingVerified;Response=$response}
 }
 
 function Get-OllamaResidency {
     [CmdletBinding()]
-    param([Parameter(Mandatory=$true)][string]$ModelName)
+    param(
+        [Parameter(Mandatory=$true)][string]$ModelName,
+        [int]$ExpectedContextLength = 102400
+    )
     $ollama = (Get-Command ollama -ErrorAction Stop).Source
     $result = Invoke-NativeCapture -FilePath $ollama -Arguments @('ps')
     if ($result.ExitCode -ne 0) { throw "Unable to inspect Ollama residency: $($result.Output)" }
     $line = @($result.Output -split "`r?`n") | Where-Object { $_ -match [regex]::Escape($ModelName) } | Select-Object -First 1
     if (-not $line) { throw "Model '$ModelName' is not loaded." }
     $processor = if ($line -match '(\d+%)\s+GPU') { "$($Matches[1]) GPU" } else { 'CPU/GPU split' }
-    $context = if ($line -match '(?:^|\s)(102400)(?:\s|$)') { [int]$Matches[1] } elseif ($line -match '(?:^|\s)(\d{4,6})(?:\s|$)') { [int]$Matches[1] } else { 0 }
-    $full = $processor -eq '100% GPU' -and $context -eq 102400
-    if (-not $full) { throw "Performance validation failed for '$ModelName': processor '$processor', context $context; expected 100% GPU and 102400." }
+    $context = if ($line -match '(?:^|\s)(\d{4,6})(?:\s|$)') { [int]$Matches[1] } else { 0 }
+    $full = $processor -eq '100% GPU' -and $context -eq $ExpectedContextLength
+    if (-not $full) { throw "Performance validation failed for '$ModelName': processor '$processor', context $context; expected 100% GPU and $ExpectedContextLength." }
     [pscustomobject]@{ContextLength=$context;Processor=$processor;FullyGpuResident=$true}
 }
 

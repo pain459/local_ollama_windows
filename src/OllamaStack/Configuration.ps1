@@ -13,20 +13,23 @@ function Get-ModelConfiguration {
             OllamaName = 'devstral-small-2:24b'
             LiteLLMName = 'ollama_chat/devstral-small-2:24b'
             ContextLength = 102400
+            SupportsThinking = $false
         }
         qwen = [pscustomobject]@{
             Name = 'qwen'
-            Alias = 'local-qwen'
+            Alias = 'local-coder'
             OllamaName = 'qwen3.8:27b'
             LiteLLMName = 'ollama_chat/qwen3.8:27b'
-            ContextLength = 102400
+            ContextLength = 92160
+            SupportsThinking = $true
         }
         ministral = [pscustomobject]@{
             Name = 'ministral'
-            Alias = 'local-coder'
+            Alias = 'local-fast'
             OllamaName = 'ministral-3:14b'
             LiteLLMName = 'ollama_chat/ministral-3:14b'
             ContextLength = 102400
+            SupportsThinking = $false
         }
     }
 
@@ -69,7 +72,7 @@ function Get-StackConfiguration {
         [string]$RootPath,
 
         [ValidateSet('devstral', 'qwen', 'ministral')]
-        [string]$Model = 'ministral'
+        [string]$Model = 'qwen'
     )
 
     $modelConfig = Get-ModelConfiguration -Model $Model
@@ -90,7 +93,7 @@ function Get-StackConfiguration {
         StartupTimeoutSeconds = 120
         OllamaEnvironment = [ordered]@{
             OLLAMA_HOST = '0.0.0.0:11434'
-            OLLAMA_CONTEXT_LENGTH = '102400'
+            OLLAMA_CONTEXT_LENGTH = [string]$modelConfig.ContextLength
             OLLAMA_FLASH_ATTENTION = '1'
             OLLAMA_KV_CACHE_TYPE = 'q8_0'
             OLLAMA_MAX_LOADED_MODELS = '1'

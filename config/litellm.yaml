@@ -1,16 +1,20 @@
 model_list:
   - model_name: local-coder
     litellm_params:
-      model: ollama_chat/ministral-3:14b
+      model: ollama_chat/qwen3.8:27b
       api_base: http://host.docker.internal:11434
+      num_ctx: 92160
     model_info:
       input_cost_per_token: 0
       output_cost_per_token: 0
+      max_input_tokens: 92160
       supports_function_calling: true
-  - model_name: local-qwen
+      supports_reasoning: true
+  - model_name: local-fast
     litellm_params:
-      model: ollama_chat/qwen3.8:27b
+      model: ollama_chat/ministral-3:14b
       api_base: http://host.docker.internal:11434
+      num_ctx: 102400
     model_info:
       input_cost_per_token: 0
       output_cost_per_token: 0
@@ -19,6 +23,7 @@ model_list:
     litellm_params:
       model: ollama_chat/devstral-small-2:24b
       api_base: http://host.docker.internal:11434
+      num_ctx: 102400
     model_info:
       input_cost_per_token: 0
       output_cost_per_token: 0

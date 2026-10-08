@@ -10,24 +10,30 @@ Describe 'Ollama stack configuration contract' {
         $model.OllamaName | Should Be 'devstral-small-2:24b'
         $model.LiteLLMName | Should Be 'ollama_chat/devstral-small-2:24b'
         $model.ContextLength | Should Be 102400
+        $model.SupportsThinking | Should Be $false
     }
 
-    It 'maps qwen and ministral to their stable aliases' {
+    It 'maps Qwen to the primary thinking alias at its measured GPU-resident context' {
         $qwen = Get-ModelConfiguration -Model 'qwen'
-        $qwen.Alias | Should Be 'local-qwen'
+        $qwen.Alias | Should Be 'local-coder'
         $qwen.OllamaName | Should Be 'qwen3.8:27b'
-        $qwen.ContextLength | Should Be 102400
+        $qwen.ContextLength | Should Be 92160
+        $qwen.SupportsThinking | Should Be $true
+    }
 
+    It 'keeps Ministral as an explicitly non-thinking fast alias' {
         $fast = Get-ModelConfiguration -Model 'ministral'
-        $fast.Alias | Should Be 'local-coder'
+        $fast.Alias | Should Be 'local-fast'
         $fast.OllamaName | Should Be 'ministral-3:14b'
         $fast.ContextLength | Should Be 102400
+        $fast.SupportsThinking | Should Be $false
     }
 
-    It 'defaults the stack to the fully GPU-resident Ministral model' {
+    It 'defaults the stack to the fully GPU-resident thinking model' {
         $config = Get-StackConfiguration -RootPath $repoRoot
-        $config.Model.Name | Should Be 'ministral'
+        $config.Model.Name | Should Be 'qwen'
         $config.Model.Alias | Should Be 'local-coder'
+        $config.OllamaEnvironment.OLLAMA_CONTEXT_LENGTH | Should Be '92160'
     }
 
     It 'rejects an unknown model instead of silently changing it' {

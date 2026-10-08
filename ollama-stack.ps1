@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][ValidateSet('Setup','Start','Stop','Status','Benchmark')][string]$Action,
-    [ValidateSet('devstral','qwen','ministral')][string]$Model='ministral',
+    [ValidateSet('devstral','qwen','ministral')][string]$Model='qwen',
     [switch]$InstallPrerequisites
 )
 $ErrorActionPreference='Stop'

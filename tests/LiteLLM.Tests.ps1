@@ -24,7 +24,7 @@ Describe 'LiteLLM gateway lifecycle' {
             New-Item -ItemType Directory -Path $config.Paths.StateDirectory -Force | Out-Null
             Set-Content -LiteralPath $config.Paths.ClientKeyPath -Value 'sk-existing-valid-client-key'
             Mock Invoke-LiteLLMRequest { [pscustomobject]@{data=@(
-                [pscustomobject]@{id='local-coder'}
+                [pscustomobject]@{id='local-fast'}
             )} }
             (Ensure-LiteLLMClientKey -Config $config) | Should Be 'sk-existing-valid-client-key'
             Assert-MockCalled Invoke-LiteLLMRequest 0 -ParameterFilter { $Path -eq '/key/generate' }
@@ -44,12 +44,12 @@ Describe 'LiteLLM gateway lifecycle' {
             Mock Invoke-LiteLLMRequest { [pscustomobject]@{data=@(
                 [pscustomobject]@{id='local-coder'}
             )} }
-            $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model qwen
             (Test-LiteLLMClientKey -Config $config -Key 'sk-current') | Should Be $true
         }
 
         It 'generates one key restricted to the selected validated alias and stores it' {
-            $config = Get-StackConfiguration -RootPath (Join-Path $TestDrive 'new') -Model ministral
+            $config = Get-StackConfiguration -RootPath (Join-Path $TestDrive 'new') -Model qwen
             Mock Invoke-LiteLLMRequest { [pscustomobject]@{key='sk-new-client-key'} }
             $key = Ensure-LiteLLMClientKey -Config $config
             $key | Should Be 'sk-new-client-key'
@@ -71,6 +71,34 @@ Describe 'LiteLLM gateway lifecycle' {
             Mock Invoke-LiteLLMRequest { "data: {`"choices`":[{`"delta`":{`"content`":`"OK`"}}]}`n`ndata: {`"choices`":[],`"usage`":{`"prompt_tokens`":3,`"completion_tokens`":2,`"total_tokens`":5}}`n`ndata: [DONE]" }
             $config = Get-StackConfiguration -RootPath $TestDrive -Model ministral
             (Invoke-GatewaySmokeTest -Config $config).Usage.total_tokens | Should Be 5
+        }
+
+        It 'sends a thinking request through the gateway for the primary coding model' {
+            Mock Test-UnauthenticatedGatewayRejection { $true }
+            Mock Ensure-LiteLLMClientKey { 'sk-client' }
+            Mock Invoke-LiteLLMRequest { [pscustomobject]@{content=@([pscustomobject]@{type='thinking';thinking='Reasoning'},[pscustomobject]@{type='text';text='OK'});usage=[pscustomobject]@{input_tokens=3;output_tokens=2}} }
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model qwen
+            $result = Invoke-GatewaySmokeTest -Config $config
+            $result.ThinkingRequested | Should Be $true
+            $result.ThinkingVerified | Should Be $true
+            $result.Usage.total_tokens | Should Be 5
+            Assert-MockCalled Invoke-LiteLLMRequest 1 -ParameterFilter { $Path -eq '/v1/messages' -and $Body -match '"type":"enabled"' -and $Body -match '"budget_tokens":1024' }
+        }
+
+        It 'rejects a gateway response with no Anthropic thinking block' {
+            Mock Test-UnauthenticatedGatewayRejection { $true }
+            Mock Ensure-LiteLLMClientKey { 'sk-client' }
+            Mock Invoke-LiteLLMRequest { [pscustomobject]@{content=@([pscustomobject]@{type='text';text='OK'});usage=[pscustomobject]@{input_tokens=3;output_tokens=2}} }
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model qwen
+            { Invoke-GatewaySmokeTest -Config $config } | Should Throw 'no thinking block'
+        }
+
+        It 'rejects Anthropic reasoning with no final answer' {
+            Mock Test-UnauthenticatedGatewayRejection { $true }
+            Mock Ensure-LiteLLMClientKey { 'sk-client' }
+            Mock Invoke-LiteLLMRequest { [pscustomobject]@{content=@([pscustomobject]@{type='thinking';thinking='Reasoning'});usage=[pscustomobject]@{input_tokens=3;output_tokens=2}} }
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model qwen
+            { Invoke-GatewaySmokeTest -Config $config } | Should Throw 'no final text block'
         }
     }
 }

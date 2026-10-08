@@ -38,5 +38,68 @@ Describe 'Stack action orchestration' {
             ($status | ConvertTo-Json -Depth 8) | Should Not Match 'sk-super-secret'
             $status.ApiUrl | Should Be 'http://192.168.1.8:4000/v1'
         }
+        It 'revalidates GPU residency after the gateway thinking smoke request' {
+            $script:order=@()
+            $config=Get-StackConfiguration -RootPath $TestDrive -Model qwen
+            New-Item -ItemType Directory $config.Paths.StateDirectory -Force | Out-Null
+            @{Pid=7;StartedAtUtc='2026-10-08T00:00:00Z';ExecutablePath='C:\Ollama\ollama.exe';Model='qwen3.8:27b'} | ConvertTo-Json | Set-Content $config.Paths.RuntimeStatePath
+            Mock Get-HostPreflight { [pscustomobject]@{CanStart=$true;Errors=@();Adapter=[pscustomobject]@{IPv4Address='192.168.1.8'}} }
+            Mock Set-StackHighPerformance { [pscustomobject]@{Previous='old';Changed=$false} }
+            Mock Start-ManagedOllama { [pscustomobject]@{Started=$false;Reused=$true;PreviousModel='qwen3.8:27b'} }
+            Mock Initialize-OllamaModel { $script:order+='initialize' }
+            Mock Get-OllamaResidency { $script:order+='residency';[pscustomobject]@{ContextLength=92160;Processor='100% GPU';FullyGpuResident=$true} }
+            Mock Start-GatewayStack { [pscustomobject]@{Started=$true} }
+            Mock Invoke-GatewaySmokeTest { $script:order+='smoke';[pscustomobject]@{Succeeded=$true} }
+            $result=Invoke-StackStart -Config $config
+            $result.Succeeded | Should Be $true
+            ($script:order -join ',') | Should Be 'initialize,residency,smoke,residency'
+            ((Get-Content $config.Paths.RuntimeStatePath -Raw | ConvertFrom-Json).Model) | Should Be 'qwen3.8:27b'
+        }
+        It 'preserves prior state and unloads the attempted model after any reused-start failure' -TestCases @(
+            @{FailurePoint='initialize'}
+            @{FailurePoint='first-residency'}
+            @{FailurePoint='smoke'}
+            @{FailurePoint='final-residency'}
+        ) {
+            param($FailurePoint)
+            $script:residencyCalls=0
+            $config=Get-StackConfiguration -RootPath $TestDrive -Model qwen
+            New-Item -ItemType Directory $config.Paths.StateDirectory -Force | Out-Null
+            @{Pid=7;StartedAtUtc='2026-10-08T00:00:00Z';ExecutablePath='C:\Ollama\ollama.exe';Model='ministral-3:14b'} | ConvertTo-Json | Set-Content $config.Paths.RuntimeStatePath
+            Mock Get-HostPreflight { [pscustomobject]@{CanStart=$true;Errors=@();Adapter=[pscustomobject]@{IPv4Address='192.168.1.8'}} }
+            Mock Set-StackHighPerformance { [pscustomobject]@{Previous='old';Changed=$false} }
+            Mock Start-ManagedOllama { [pscustomobject]@{Started=$false;Reused=$true;PreviousModel='ministral-3:14b'} }
+            Mock Initialize-OllamaModel { if($FailurePoint -eq 'initialize'){throw 'initialize failed'} }
+            Mock Get-OllamaResidency {
+                $script:residencyCalls++
+                if(($FailurePoint -eq 'first-residency' -and $script:residencyCalls -eq 1) -or ($FailurePoint -eq 'final-residency' -and $script:residencyCalls -eq 2)){throw 'residency failed'}
+                [pscustomobject]@{ContextLength=92160;Processor='100% GPU';FullyGpuResident=$true}
+            }
+            Mock Start-GatewayStack { [pscustomobject]@{Started=$true} }
+            Mock Invoke-GatewaySmokeTest { if($FailurePoint -eq 'smoke'){throw 'smoke failed'};[pscustomobject]@{Succeeded=$true} }
+            Mock Stop-GatewayStack { [pscustomobject]@{Stopped=$true} }
+            Mock Unload-OllamaModel {}
+            { Invoke-StackStart -Config $config } | Should Throw
+            ((Get-Content $config.Paths.RuntimeStatePath -Raw | ConvertFrom-Json).Model) | Should Be 'ministral-3:14b'
+            Assert-MockCalled Unload-OllamaModel 1 -ParameterFilter {$ModelName -eq 'qwen3.8:27b'}
+        }
+        It 'does not unload a target model that was already owned before a reused-start failure' {
+            $script:sameModelUnloadCount=0
+            $config=Get-StackConfiguration -RootPath $TestDrive -Model qwen
+            New-Item -ItemType Directory $config.Paths.StateDirectory -Force | Out-Null
+            @{Pid=7;StartedAtUtc='2026-10-08T00:00:00Z';ExecutablePath='C:\Ollama\ollama.exe';Model='qwen3.8:27b'} | ConvertTo-Json | Set-Content $config.Paths.RuntimeStatePath
+            Mock Get-HostPreflight { [pscustomobject]@{CanStart=$true;Errors=@();Adapter=[pscustomobject]@{IPv4Address='192.168.1.8'}} }
+            Mock Set-StackHighPerformance { [pscustomobject]@{Previous='old';Changed=$false} }
+            Mock Start-ManagedOllama { [pscustomobject]@{Started=$false;Reused=$true;PreviousModel='qwen3.8:27b'} }
+            Mock Initialize-OllamaModel {}
+            Mock Get-OllamaResidency { [pscustomobject]@{ContextLength=92160;Processor='100% GPU';FullyGpuResident=$true} }
+            Mock Start-GatewayStack { [pscustomobject]@{Started=$true} }
+            Mock Invoke-GatewaySmokeTest { throw 'smoke failed' }
+            Mock Stop-GatewayStack { [pscustomobject]@{Stopped=$true} }
+            Mock Unload-OllamaModel { $script:sameModelUnloadCount++ }
+            { Invoke-StackStart -Config $config } | Should Throw
+            ((Get-Content $config.Paths.RuntimeStatePath -Raw | ConvertFrom-Json).Model) | Should Be 'qwen3.8:27b'
+            $script:sameModelUnloadCount | Should Be 0
+        }
     }
 }

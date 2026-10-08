@@ -1,6 +1,6 @@
 # Local Ollama Windows performance stack
 
-This repository runs native Windows Ollama behind an authenticated LiteLLM gateway and private PostgreSQL database. Docker publishes only LiteLLM on TCP 4000; LAN clients never connect to a container IP. The default `local-coder` model is Ministral 3 14B at a 102,400-token context with Q8 KV cache and mandatory `100% GPU` residency.
+This repository runs native Windows Ollama behind an authenticated LiteLLM gateway and private PostgreSQL database. Docker publishes only LiteLLM on TCP 4000; LAN clients never connect to a container IP. The default `local-coder` model is the thinking-capable Qwen 3.8 27B at a 92,160-token context with Q8 KV cache and mandatory `100% GPU` residency.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ This repository runs native Windows Ollama behind an authenticated LiteLLM gatew
 Open an elevated PowerShell for Setup only:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ollama-stack.ps1 -Action Setup -Model ministral
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ollama-stack.ps1 -Action Setup
 ```
 
 If Docker Desktop is absent, append `-InstallPrerequisites`; the script uses the official `Docker.DockerDesktop` winget package and asks you to reboot/rerun when required. Setup is idempotent: it preserves all generated secrets, pulls pinned images and only the selected Ollama model, records image IDs, disables broad inbound Ollama/11434 allow rules, and creates one Private/LocalSubnet TCP 4000 rule.
@@ -22,13 +22,13 @@ If Docker Desktop is absent, append `-InstallPrerequisites`; the script uses the
 Normal operation does not require elevation:
 
 ```powershell
-.\ollama-stack.ps1 -Action Start -Model ministral
-.\ollama-stack.ps1 -Action Status -Model ministral
+.\ollama-stack.ps1 -Action Start
+.\ollama-stack.ps1 -Action Status
 .\ollama-stack.ps1 -Action Benchmark
-.\ollama-stack.ps1 -Action Stop -Model ministral
+.\ollama-stack.ps1 -Action Stop
 ```
 
-Models are `ministral` → `local-coder` (default and verified fully GPU-resident), `qwen` → `local-qwen`, and `devstral` → `local-devstral`. Only one is loaded at a time. Start fails instead of accepting CPU offload, a context below 102400, a Public network, or an unknown owner of port 11434/4000. Stop preserves PostgreSQL history and only terminates the Ollama PID whose path and creation time match controller state.
+Models are `qwen` → `local-coder` (default, thinking-capable), `ministral` → `local-fast` (non-thinking), and `devstral` → `local-devstral` (non-thinking). Only one is loaded at a time. The Qwen limit is deliberately 92,160: this machine was measured at `100% GPU` there, while 98,304 spilled into CPU. Start verifies both thinking output and the selected model's exact GPU-resident context; it also refuses a Public network or an unknown owner of port 11434/4000. Stop preserves PostgreSQL history and only terminates the Ollama PID whose path and creation time match controller state.
 
 Generated `.env.local`, `.state/`, logs, client key, and benchmark JSON are Git-ignored. Status prints the client-key file path, never a credential. LiteLLM stores token/latency metadata but message and response content logging is disabled.
 
