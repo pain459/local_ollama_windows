@@ -18,6 +18,13 @@ Describe 'Managed Ollama lifecycle' {
             $env:OLLAMA_CONTEXT_LENGTH | Should Be $before
         }
 
+        It 'does not redirect server streams unless a consumer drains them' {
+            $config = Get-StackConfiguration -RootPath $TestDrive -Model devstral
+            $info = New-OllamaProcessStartInfo -ExecutablePath 'C:\Ollama\ollama.exe' -Config $config
+            $info.RedirectStandardOutput | Should Be $false
+            $info.RedirectStandardError | Should Be $false
+        }
+
         It 'rejects an unknown process already listening on the Ollama port' {
             Mock Get-PortOwner { [pscustomobject]@{Pid=44;ExecutablePath='C:\Other\server.exe';StartedAtUtc='2026-01-01T00:00:00Z'} }
             Mock Get-Command { [pscustomobject]@{Source='C:\Ollama\ollama.exe'} }

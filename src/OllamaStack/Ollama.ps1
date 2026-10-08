@@ -5,8 +5,10 @@ function New-OllamaProcessStartInfo {
     $info.Arguments = 'serve'
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
-    $info.RedirectStandardOutput = $true
-    $info.RedirectStandardError = $true
+    # Undrained redirected streams can fill their OS pipe buffers and block
+    # the server during model loading. Inherit the controller's streams.
+    $info.RedirectStandardOutput = $false
+    $info.RedirectStandardError = $false
     foreach ($entry in $Config.OllamaEnvironment.GetEnumerator()) { $info.EnvironmentVariables[[string]$entry.Key] = [string]$entry.Value }
     return $info
 }
